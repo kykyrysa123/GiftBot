@@ -1,10 +1,10 @@
 telegram:
   bot:
-    token: ${BOT_TOKEN}
-    username: ${BOT_USERNAME}
+    token: 7846398531:AAHzFiS03qOCBHFBcLFEt9zLDGR2QXfBpfI
+    username: @ShopInKilsoyFreeBot
 admin:
-  id: ${ADMIN_ID}
+  id: 1487264229
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:sqlite:/app/orders.db}
+    url: jdbc:sqlite:/app/orders.db
     driver-class-name: org.sqlite.JDBC

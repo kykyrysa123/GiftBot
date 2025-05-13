@@ -5,6 +5,8 @@ WORKDIR /app
 COPY mvnw .
 COPY .mvn .mvn
 COPY pom.xml .
+# Устанавливаем права на выполнение
+RUN chmod +x ./mvnw
 # Кэшируем зависимости
 RUN ./mvnw dependency:go-offline -B
 # Копируем исходный код

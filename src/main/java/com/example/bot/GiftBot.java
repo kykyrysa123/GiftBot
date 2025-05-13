@@ -86,13 +86,13 @@ public class GiftBot extends TelegramLongPollingBot {
         if (messageText != null) {
           System.out.println("Получен текст или подпись: " + messageText); // Логирование для отладки
           if (messageText.equals("/start") || messageText.equals("Начать")) {
-            sendMessage(chatId, "Привет! Это бот для заказа товаров. Используй кнопки или команды: /order, /sites, /admin.");
+            sendMessage(chatId, "Привет! Это бот для заказа товаров из Китая. Используй кнопки или команды: /order, /sites, /admin.");
             return;
           } else if (messageText.equals("/order") || messageText.equals("Оформить заказ")) {
             userStates.put(chatId, "awaiting_order");
-            sendMessage(chatId, "Отправь описание подарка и, если есть, ссылку на товар или скриншот.", true);
+            sendMessage(chatId, "Отправьте ссылку на товар, скриншот с выбранным цветом/размером/комлектацией. При необходимости укажите количество.", true);
             return;
-          } else if (messageText.equals("/sites") || messageText.equals("Список сайтов")) {
+          } else if (messageText.equals("/sites") || messageText.equals("Список сайтов и приложений")) {
             sendMessage(chatId, getSites());
             return;
           } else if (messageText.equals("/admin") || messageText.equals("Информация об админе")) {
@@ -109,6 +109,10 @@ public class GiftBot extends TelegramLongPollingBot {
             return;
           } else if (messageText.equals("/orders") && chatId == adminId) {
             handleOrdersCommand(chatId);
+            return;
+          }
+          else if (messageText.equals("/clearorders") && chatId == adminId) {
+            handleClearOrdersCommand(chatId);
             return;
           }
         }
@@ -253,7 +257,7 @@ public class GiftBot extends TelegramLongPollingBot {
     } else {
       KeyboardRow row = new KeyboardRow();
       row.add("Оформить заказ");
-      row.add("Список сайтов");
+      row.add("Список сайтов и приложений");
       rows.add(row);
       row = new KeyboardRow();
       row.add("Информация об админе");
@@ -363,7 +367,7 @@ public class GiftBot extends TelegramLongPollingBot {
       if (messageText != null && messageText.startsWith("@")) {
         order.setUsername(messageText.trim());
         userStates.put(chatId, "awaiting_fio");
-        sendMessage(chatId, "Введите фамилию, имя и отчество (в одной строке, через пробел(Стасюк Артём Александрович)):");
+        sendMessage(chatId, "Введите фамилию, имя и отчество,в одной строке через пробел (например, Стасюк Артём Александрович)):");
       } else {
         sendMessage(chatId, "Username должен начинаться с @. Попробуйте снова.");
       }
@@ -377,7 +381,7 @@ public class GiftBot extends TelegramLongPollingBot {
         order.setFirstName(nameParts[1]);
         order.setPatronymic(nameParts[2]);
         userStates.put(chatId, "awaiting_phone");
-        sendMessage(chatId, "Теперь введите номер телефона без пробелов(+375447169359):");
+        sendMessage(chatId, "Теперь введите номер телефона без пробелов (например, +375447169359):");
       } else {
         sendMessage(chatId, "Пожалуйста, укажите ФИО через пробел: Фамилия Имя Отчество");
       }
@@ -385,10 +389,18 @@ public class GiftBot extends TelegramLongPollingBot {
     } else if (state.equals("awaiting_phone")) {
       Order order = pendingOrders.get(chatId);
       System.out.println("Состояние awaiting_phone для chatId " + chatId + ": link = " + order.getLink());
-      order.setPhone(messageText.trim());
-      userStates.put(chatId, "awaiting_address");
-      sendMessage(chatId, "Теперь введите адрес доставки(адрес почтового отделения на котором вы будете забирать поссылку):");
 
+      // Удаляем все пробелы из введенного номера
+      String phoneNumber = messageText.trim().replaceAll("\\s+", "");
+
+      // Проверяем формат номера
+      if (phoneNumber.matches("^\\+375\\d{9}$")) {
+        order.setPhone(phoneNumber);
+        userStates.put(chatId, "awaiting_address");
+        sendMessage(chatId, "Теперь укажите способ получения товара:"+"\n"+"1.Самовывоз г.Барановичи"+"\n"+"2.Доставка на ПВЗ (укажите ваш номер отделения и полный адрес ПВЗ)"+"\n"+"p.s (ПВЗ - пункт выдачи заказов)");
+      } else {
+        sendMessage(chatId, "Номер телефона должен начинаться с +375 и содержать ровно 12 цифр (например, +375447169359). Пожалуйста, введите корректный номер:");
+      }
     } else if (state.equals("awaiting_address")) {
       Order order = pendingOrders.get(chatId);
       System.out.println("Состояние awaiting_address для chatId " + chatId + ": link = " + order.getLink());
@@ -407,7 +419,7 @@ public class GiftBot extends TelegramLongPollingBot {
           "Имя: " + order.getFirstName() + "\n" +
           "Отчество: " + order.getPatronymic() + "\n" +
           "Телефон: " + order.getPhone() + "\n" +
-          "Адрес: " + order.getAddress());
+          "Доставка: " + order.getAddress());
       if (!order.getPhotoFileIds().isEmpty()) {
         adminMessage.append("\nСкриншоты: [фото отправлены]");
         for (String photoFileId : order.getPhotoFileIds()) {
@@ -467,7 +479,7 @@ public class GiftBot extends TelegramLongPollingBot {
   }
 
   private String getSites() {
-    StringBuilder sites = new StringBuilder("Список сайтов:\n");
+    StringBuilder sites = new StringBuilder("Список сайтов и приложений:\n");
     try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db");
          Statement stmt = conn.createStatement();
          ResultSet rs = stmt.executeQuery("SELECT url, description FROM sites")) {
@@ -480,7 +492,7 @@ public class GiftBot extends TelegramLongPollingBot {
       System.err.println("Ошибка при получении списка сайтов: " + e.getMessage());
       return "Ошибка при получении списка сайтов.";
     }
-    return sites.length() > "Список сайтов:\n".length() ? sites.toString() : "Сайты пока не добавлены.";
+    return sites.length() > "Список сайтов и приложений:\n".length() ? sites.toString() : "Сайты пока не добавлены.";
   }
 
   private String getAdminInfo() {
@@ -513,6 +525,34 @@ public class GiftBot extends TelegramLongPollingBot {
       }
     } else {
       sendMessage(chatId, "Используй: /addsite <url> <описание>");
+    }
+  }
+  // Новый метод для очистки базы данных заказов
+  private void handleClearOrdersCommand(long chatId) throws TelegramApiException {
+    try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db")) {
+      // Очищаем таблицу order_photos
+      try (Statement stmt = conn.createStatement()) {
+        stmt.executeUpdate("DELETE FROM order_photos");
+        System.out.println("Таблица order_photos очищена.");
+      }
+
+      // Очищаем таблицу orders
+      try (Statement stmt = conn.createStatement()) {
+        stmt.executeUpdate("DELETE FROM orders");
+        System.out.println("Таблица orders очищена.");
+      }
+
+      // Сбрасываем счетчик автоинкремента в таблице orders
+      try (Statement stmt = conn.createStatement()) {
+        stmt.executeUpdate("DELETE FROM sqlite_sequence WHERE name='orders'");
+        System.out.println("Счетчик автоинкремента для orders сброшен.");
+      }
+
+      sendMessage(chatId, "База данных заказов успешно очищена.");
+    } catch (SQLException e) {
+      System.err.println("Ошибка при очистке базы данных заказов: " + e.getMessage());
+      e.printStackTrace();
+      sendMessage(chatId, "Ошибка при очистке базы данных заказов: " + e.getMessage());
     }
   }
 

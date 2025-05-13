@@ -1,0 +1,10 @@
+telegram:
+  bot:
+    token: ${BOT_TOKEN}
+    username: ${BOT_USERNAME}
+admin:
+  id: ${ADMIN_ID}
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:sqlite:/app/orders.db}
+    driver-class-name: org.sqlite.JDBC

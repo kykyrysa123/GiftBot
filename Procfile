@@ -1,0 +1,1 @@
+web: java -jar target/GiftBot-0.0.1-SNAPSHOT.jar

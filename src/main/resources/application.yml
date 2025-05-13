@@ -1,7 +1,7 @@
 telegram:
   bot:
     token: 7846398531:AAHzFiS03qOCBHFBcLFEt9zLDGR2QXfBpfI
-    username: @ShopInKilsoyFreeBot
+    username: "@ShopInKilsoyFreeBot"
 admin:
   id: 1487264229
 spring:

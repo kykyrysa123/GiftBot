@@ -482,7 +482,7 @@ public class GiftBot extends TelegramLongPollingBot {
     StringBuilder sites = new StringBuilder("Список сайтов и приложений:\n");
     try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db");
          Statement stmt = conn.createStatement();
-         ResultSet rs = stmt.executeQuery("SELECT url, description FROM sites")) {
+         ResultSet rs = stmt.executeQuery("SELECT description, url FROM sites")) {  // Изменил порядок полей в запросе
       int index = 1;
       while (rs.next()) {
         sites.append(index++).append(". ").append(rs.getString("description"))
@@ -513,9 +513,9 @@ public class GiftBot extends TelegramLongPollingBot {
     String[] parts = messageText.split(" ", 3);
     if (parts.length == 3) {
       try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db");
-           PreparedStatement pstmt = conn.prepareStatement("INSERT INTO sites (url, description) VALUES (?, ?)")) {
-        pstmt.setString(1, parts[1]);
-        pstmt.setString(2, parts[2]);
+           PreparedStatement pstmt = conn.prepareStatement("INSERT INTO sites (description, url) VALUES (?, ?)")) {
+        pstmt.setString(1, parts[1]);  // Теперь description идет первым
+        pstmt.setString(2, parts[2]);  // А url вторым
         pstmt.executeUpdate();
         sendMessage(chatId, "Сайт добавлен!");
       } catch (SQLException e) {
@@ -524,7 +524,7 @@ public class GiftBot extends TelegramLongPollingBot {
         e.printStackTrace();
       }
     } else {
-      sendMessage(chatId, "Используй: /addsite <url> <описание>");
+      sendMessage(chatId, "Используй: /addsite <описание> <url>");
     }
   }
   // Новый метод для очистки базы данных заказов

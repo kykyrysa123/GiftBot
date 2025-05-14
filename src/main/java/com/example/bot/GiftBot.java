@@ -479,20 +479,23 @@ public class GiftBot extends TelegramLongPollingBot {
   }
 
   private String getSites() {
-    StringBuilder sites = new StringBuilder("Список сайтов и приложений:\n");
+    StringBuilder sites = new StringBuilder("Список сайтов и приложений:\n\n");
     try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db");
          Statement stmt = conn.createStatement();
-         ResultSet rs = stmt.executeQuery("SELECT url, description FROM sites")) {
+         ResultSet rs = stmt.executeQuery("SELECT url, description, url2, description2 FROM sites")) {
       int index = 1;
       while (rs.next()) {
-        sites.append(index++).append(". ").append(rs.getString("url"))
-             .append(" - ").append(rs.getString("description")).append("\n");
+        sites.append(index++).append(". ")
+             .append(rs.getString("description")).append("\n") // Описание
+             .append(rs.getString("url")).append("\n\n")       // URL1
+             .append("Установочный файл\n")                    // Текст
+             .append(rs.getString("url2") != null ? rs.getString("url2") : "Не указан").append("\n\n"); // URL2
       }
     } catch (SQLException e) {
       System.err.println("Ошибка при получении списка сайтов: " + e.getMessage());
       return "Ошибка при получении списка сайтов.";
     }
-    return sites.length() > "Список сайтов и приложений:\n".length() ? sites.toString() : "Сайты пока не добавлены.";
+    return sites.length() > "Список сайтов и приложений:\n\n".length() ? sites.toString() : "Сайты пока не добавлены.";
   }
 
   private String getAdminInfo() {
@@ -510,12 +513,15 @@ public class GiftBot extends TelegramLongPollingBot {
   }
 
   private void handleAddSiteCommand(long chatId, String messageText) throws TelegramApiException {
-    String[] parts = messageText.split(" ", 3);
-    if (parts.length == 3) {
+    String[] parts = messageText.split(", ", 5);
+    if (parts.length == 5 && parts[0].equals("/addsites")) {
       try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db");
-           PreparedStatement pstmt = conn.prepareStatement("INSERT INTO sites (url, description) VALUES (?, ?)")) {
-        pstmt.setString(1, parts[1]);
-        pstmt.setString(2, parts[2]);
+           PreparedStatement pstmt = conn.prepareStatement(
+               "INSERT INTO sites (url, description, url2, description2) VALUES (?, ?, ?, ?)")) {
+        pstmt.setString(1, parts[1]); // url
+        pstmt.setString(2, parts[2]); // description
+        pstmt.setString(3, parts[3]); // url2
+        pstmt.setString(4, parts[4]); // description2
         pstmt.executeUpdate();
         sendMessage(chatId, "Сайт добавлен!");
       } catch (SQLException e) {
@@ -524,7 +530,7 @@ public class GiftBot extends TelegramLongPollingBot {
         e.printStackTrace();
       }
     } else {
-      sendMessage(chatId, "Используй: /addsite <url> <описание>");
+      sendMessage(chatId, "Используй: /addsites <url1>, <описание1>, <url2>, <описание2>");
     }
   }
   // Новый метод для очистки базы данных заказов

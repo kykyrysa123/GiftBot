@@ -485,8 +485,8 @@ public class GiftBot extends TelegramLongPollingBot {
          ResultSet rs = stmt.executeQuery("SELECT url, description FROM sites")) {
       int index = 1;
       while (rs.next()) {
-        sites.append(index++).append(". ").append(rs.getString("url"))
-             .append(" - ").append(rs.getString("description")).append("\n");
+        sites.append(index++).append(". ").append(rs.getString("description"))
+             .append(" - ").append(rs.getString("url")).append("\n");
       }
     } catch (SQLException e) {
       System.err.println("Ошибка при получении списка сайтов: " + e.getMessage());

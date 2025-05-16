@@ -17,7 +17,6 @@ import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import jakarta.annotation.PostConstruct;
@@ -252,10 +251,9 @@ public class GiftBot extends TelegramLongPollingBot {
     List<KeyboardRow> rows = new ArrayList<>();
 
     if (showNextButton) {
-      KeyboardRow actionRow = new KeyboardRow();
-      actionRow.add("Далее");
-      actionRow.add("Отмена"); // Добавляем кнопку "Отмена"
-      rows.add(actionRow);
+      KeyboardRow nextRow = new KeyboardRow();
+      nextRow.add("Далее");
+      rows.add(nextRow);
     } else {
       KeyboardRow row = new KeyboardRow();
       row.add("Оформить заказ");
@@ -280,18 +278,9 @@ public class GiftBot extends TelegramLongPollingBot {
     sendMessage(chatId, text, false);
   }
 
-  // Модифицированный метод handleUserState
   private void handleUserState(long chatId, String username, String messageText, List<PhotoSize> photos) throws TelegramApiException {
     String state = userStates.get(chatId);
     if (state == null) return;
-
-    // Обработка кнопки "Отмена" на любом этапе
-    if (messageText != null && messageText.equals("Отмена")) {
-      userStates.remove(chatId);
-      pendingOrders.remove(chatId);
-      sendMessageWithoutKeyboard(chatId, "Оформление заказа отменено. Используйте /order, чтобы начать заново.");
-      return;
-    }
 
     if (state.equals("awaiting_order")) {
       Order order = pendingOrders.computeIfAbsent(chatId, k -> new Order());
@@ -303,17 +292,20 @@ public class GiftBot extends TelegramLongPollingBot {
       List<String> links = new ArrayList<>();
 
       if (messageText != null && !messageText.equals("Далее")) {
+        // Извлекаем все ссылки
         Matcher matcher = URL_PATTERN.matcher(messageText);
         while (matcher.find()) {
           links.add(matcher.group());
         }
 
+        // Формируем описание, исключая ссылки
         String description = messageText;
         for (String link : links) {
           description = description.replace(link, "").trim();
         }
         description = description.trim();
 
+        // Сохраняем ссылки
         if (!links.isEmpty()) {
           String combinedLinks = String.join("; ", links);
           if (order.getLink() == null || order.getLink().isEmpty()) {
@@ -324,6 +316,7 @@ public class GiftBot extends TelegramLongPollingBot {
           hasLink = true;
         }
 
+        // Сохраняем описание, если оно не пустое
         if (!description.isEmpty()) {
           if (order.getText() == null || order.getText().equals("Заказ со скриншотом")) {
             order.setText(description);
@@ -338,6 +331,7 @@ public class GiftBot extends TelegramLongPollingBot {
         System.out.println("После обработки текста/подписи для chatId " + chatId + ": link = " + order.getLink() + ", text = " + order.getText());
       }
 
+      // Обработка фотографии
       if (photos != null && !photos.isEmpty()) {
         PhotoSize largestPhoto = photos.get(photos.size() - 1);
         String photoFileId = largestPhoto.getFileId();
@@ -349,19 +343,21 @@ public class GiftBot extends TelegramLongPollingBot {
         System.out.println("После обработки фото для chatId " + chatId + ": link = " + order.getLink() + ", text = " + order.getText());
       }
 
+      // Формируем сообщение пользователю
       StringBuilder response = new StringBuilder();
-      if (hasText || hasLink) {
+      if (hasText || hasLink ) {
         response.append("Вы можете добавить ещё описание, ссылку или скриншот, или нажать 'Далее' для продолжения.");
         sendMessage(chatId, response.toString(), true);
       }
 
+      // Обработка кнопки "Далее"
       if (messageText != null && messageText.equals("Далее")) {
         if (order.getText() == null && order.getPhotoFileIds().isEmpty() && order.getLink() == null) {
           sendMessage(chatId, "Пожалуйста, отправьте описание подарка, ссылку или скриншот перед тем, как продолжить.", true);
           return;
         }
         userStates.put(chatId, "awaiting_username");
-        sendMessage(chatId, "Теперь введите ваш Telegram username (например, @kitau123):", true);
+        sendMessage(chatId, "Теперь введите ваш Telegram username (например, @Comandir333):");
         System.out.println("После нажатия 'Далее' для chatId " + chatId + ": link = " + order.getLink() + ", text = " + order.getText());
       }
 
@@ -371,9 +367,9 @@ public class GiftBot extends TelegramLongPollingBot {
       if (messageText != null && messageText.startsWith("@")) {
         order.setUsername(messageText.trim());
         userStates.put(chatId, "awaiting_fio");
-        sendMessage(chatId, "Введите фамилию, имя и отчество, в одной строке через пробел (например, Иванов Иван Иванович):", true);
+        sendMessage(chatId, "Введите фамилию, имя и отчество,в одной строке через пробел (например, Стасюк Артём Александрович)):");
       } else {
-        sendMessage(chatId, "Username должен начинаться с @. Попробуйте снова.", true);
+        sendMessage(chatId, "Username должен начинаться с @. Попробуйте снова.");
       }
 
     } else if (state.equals("awaiting_fio")) {
@@ -385,21 +381,25 @@ public class GiftBot extends TelegramLongPollingBot {
         order.setFirstName(nameParts[1]);
         order.setPatronymic(nameParts[2]);
         userStates.put(chatId, "awaiting_phone");
-        sendMessage(chatId, "Теперь введите номер телефона без пробелов (например, +375447269551):", true);
+        sendMessage(chatId, "Теперь введите номер телефона без пробелов (например, +375447169359):");
       } else {
-        sendMessage(chatId, "Пожалуйста, укажите ФИО через пробел: Фамилия Имя Отчество", true);
+        sendMessage(chatId, "Пожалуйста, укажите ФИО через пробел: Фамилия Имя Отчество");
       }
 
     } else if (state.equals("awaiting_phone")) {
       Order order = pendingOrders.get(chatId);
       System.out.println("Состояние awaiting_phone для chatId " + chatId + ": link = " + order.getLink());
+
+      // Удаляем все пробелы из введенного номера
       String phoneNumber = messageText.trim().replaceAll("\\s+", "");
+
+      // Проверяем формат номера
       if (phoneNumber.matches("^\\+375\\d{9}$")) {
         order.setPhone(phoneNumber);
         userStates.put(chatId, "awaiting_address");
-        sendMessage(chatId, "Теперь укажите способ получения товара:\n1. Самовывоз г.Барановичи\n2. Доставка на ПВЗ (укажите ваш номер отделения и полный адрес ПВЗ)\np.s (ПВЗ - пункт выдачи заказов)", true);
+        sendMessage(chatId, "Теперь укажите способ получения товара:"+"\n"+"1.Самовывоз г.Барановичи"+"\n"+"2.Доставка на ПВЗ (укажите ваш номер отделения и полный адрес ПВЗ)"+"\n"+"p.s (ПВЗ - пункт выдачи заказов)");
       } else {
-        sendMessage(chatId, "Номер телефона должен начинаться с +375 и содержать ровно 12 цифр (например, +375447269551). Пожалуйста, введите корректный номер:", true);
+        sendMessage(chatId, "Номер телефона должен начинаться с +375 и содержать ровно 12 цифр (например, +375447169359). Пожалуйста, введите корректный номер:");
       }
     } else if (state.equals("awaiting_address")) {
       Order order = pendingOrders.get(chatId);
@@ -436,17 +436,6 @@ public class GiftBot extends TelegramLongPollingBot {
       System.out.println("Сообщение для админа: " + adminMessage.toString());
       sendMessage(adminId, adminMessage.toString());
     }
-  }
-  private void sendMessageWithoutKeyboard(long chatId, String text) throws TelegramApiException {
-    SendMessage message = new SendMessage();
-    message.setChatId(String.valueOf(chatId));
-    message.setText(text);
-    message.setReplyMarkup(new ReplyKeyboardRemove(true));
-    executeAsync(message).exceptionally(throwable -> {
-      System.err.println("Ошибка отправки сообщения: " + throwable.getMessage());
-      throwable.printStackTrace();
-      return null;
-    }).join();
   }
 
   private void saveOrder(Order order, long chatId) {

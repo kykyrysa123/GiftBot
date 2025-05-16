@@ -98,7 +98,7 @@ public class GiftBot extends TelegramLongPollingBot {
           } else if (messageText.equals("/admin") || messageText.equals("Информация об админе")) {
             sendMessage(chatId, getAdminInfo());
             return;
-          } else if (messageText.equals("/status")) {
+          } else if (messageText.equals("/status") || messageText.equals("Статус моих заказов")) { // Добавляем обработку кнопки
             checkOrderStatus(chatId);
             return;
           } else if (messageText.startsWith("/addsite") && chatId == adminId) {
@@ -110,8 +110,7 @@ public class GiftBot extends TelegramLongPollingBot {
           } else if (messageText.equals("/orders") && chatId == adminId) {
             handleOrdersCommand(chatId);
             return;
-          }
-          else if (messageText.equals("/clearorders") && chatId == adminId) {
+          } else if (messageText.equals("/clearorders") && chatId == adminId) {
             handleClearOrdersCommand(chatId);
             return;
           }
@@ -123,14 +122,14 @@ public class GiftBot extends TelegramLongPollingBot {
             if (messageText != null || photos != null) {
               handleUserState(chatId, username, messageText, photos);
             } else {
-              sendMessage(chatId, "Пожалуйста, отправьте описание подарка или скриншот.");
+              sendMessage(chatId, "Пожалуйста, отправьте описание подарка или скриншот.", true);
             }
           } else {
             // Для других состояний (username, fio, phone, address) фото не ожидаются
             if (messageText != null) {
               handleUserState(chatId, username, messageText, null);
             } else {
-              sendMessage(chatId, "Пожалуйста, отправьте текстовые данные.");
+              sendMessage(chatId, "Пожалуйста, отправьте текстовые данные.", true);
             }
           }
         } else {

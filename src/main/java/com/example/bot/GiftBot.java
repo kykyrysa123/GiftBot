@@ -361,7 +361,7 @@ public class GiftBot extends TelegramLongPollingBot {
           return;
         }
         userStates.put(chatId, "awaiting_username");
-        sendMessage(chatId, "Теперь введите ваш Telegram username (например, @Comandir333):", true);
+        sendMessage(chatId, "Теперь введите ваш Telegram username (например, @kitau123):", true);
         System.out.println("После нажатия 'Далее' для chatId " + chatId + ": link = " + order.getLink() + ", text = " + order.getText());
       }
 
@@ -371,7 +371,7 @@ public class GiftBot extends TelegramLongPollingBot {
       if (messageText != null && messageText.startsWith("@")) {
         order.setUsername(messageText.trim());
         userStates.put(chatId, "awaiting_fio");
-        sendMessage(chatId, "Введите фамилию, имя и отчество, в одной строке через пробел (например, Стасюк Артём Александрович):", true);
+        sendMessage(chatId, "Введите фамилию, имя и отчество, в одной строке через пробел (например, Иванов Иван Иванович):", true);
       } else {
         sendMessage(chatId, "Username должен начинаться с @. Попробуйте снова.", true);
       }
@@ -385,7 +385,7 @@ public class GiftBot extends TelegramLongPollingBot {
         order.setFirstName(nameParts[1]);
         order.setPatronymic(nameParts[2]);
         userStates.put(chatId, "awaiting_phone");
-        sendMessage(chatId, "Теперь введите номер телефона без пробелов (например, +375447169359):", true);
+        sendMessage(chatId, "Теперь введите номер телефона без пробелов (например, +375447269551):", true);
       } else {
         sendMessage(chatId, "Пожалуйста, укажите ФИО через пробел: Фамилия Имя Отчество", true);
       }
@@ -399,7 +399,7 @@ public class GiftBot extends TelegramLongPollingBot {
         userStates.put(chatId, "awaiting_address");
         sendMessage(chatId, "Теперь укажите способ получения товара:\n1. Самовывоз г.Барановичи\n2. Доставка на ПВЗ (укажите ваш номер отделения и полный адрес ПВЗ)\np.s (ПВЗ - пункт выдачи заказов)", true);
       } else {
-        sendMessage(chatId, "Номер телефона должен начинаться с +375 и содержать ровно 12 цифр (например, +375447169359). Пожалуйста, введите корректный номер:", true);
+        sendMessage(chatId, "Номер телефона должен начинаться с +375 и содержать ровно 12 цифр (например, +375447269551). Пожалуйста, введите корректный номер:", true);
       }
     } else if (state.equals("awaiting_address")) {
       Order order = pendingOrders.get(chatId);

@@ -17,6 +17,7 @@ import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import jakarta.annotation.PostConstruct;
@@ -288,7 +289,7 @@ public class GiftBot extends TelegramLongPollingBot {
     if (messageText != null && messageText.equals("Отмена")) {
       userStates.remove(chatId);
       pendingOrders.remove(chatId);
-      sendMessage(chatId, "Оформление заказа отменено. Используйте /order, чтобы начать заново.");
+      sendMessageWithoutKeyboard(chatId, "Оформление заказа отменено. Используйте /order, чтобы начать заново.");
       return;
     }
 
@@ -435,6 +436,17 @@ public class GiftBot extends TelegramLongPollingBot {
       System.out.println("Сообщение для админа: " + adminMessage.toString());
       sendMessage(adminId, adminMessage.toString());
     }
+  }
+  private void sendMessageWithoutKeyboard(long chatId, String text) throws TelegramApiException {
+    SendMessage message = new SendMessage();
+    message.setChatId(String.valueOf(chatId));
+    message.setText(text);
+    message.setReplyMarkup(new ReplyKeyboardRemove(true));
+    executeAsync(message).exceptionally(throwable -> {
+      System.err.println("Ошибка отправки сообщения: " + throwable.getMessage());
+      throwable.printStackTrace();
+      return null;
+    }).join();
   }
 
   private void saveOrder(Order order, long chatId) {

@@ -260,7 +260,7 @@ public class GiftBot extends TelegramLongPollingBot {
       row.add("Список сайтов и приложений");
       rows.add(row);
       row = new KeyboardRow();
-      row.add("Информация об админе");
+      row.add("Информация об админе ");
       row.add("Статус моих заказов");
       rows.add(row);
     }

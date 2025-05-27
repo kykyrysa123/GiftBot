@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,6 +50,7 @@ public class GiftBot extends TelegramLongPollingBot {
   @Value("${admin.id}")
   private long adminId;
 
+  private final Map<Long, Long> lastPromptMessageTime = new ConcurrentHashMap<>();
   private final Map<Long, String> userStates = new HashMap<>();
   private final Map<Long, Order> pendingOrders = new HashMap<>();
   private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+");
@@ -350,7 +352,15 @@ public class GiftBot extends TelegramLongPollingBot {
       }
 
       if (hasInput) {
+        long currentTime = System.currentTimeMillis();
+        Long lastSentTime = lastPromptMessageTime.getOrDefault(chatId, 0L);
+        if (currentTime - lastSentTime > 1000){
         sendMessage(chatId, "Вы можете добавить ещё описание, ссылку или скриншот, или нажать 'Далее' для продолжения.", true);
+          lastPromptMessageTime.put(chatId, currentTime);
+          System.out.println("Отправлено сообщение для chatId " + chatId + " в " + currentTime);
+        } else {
+          System.out.println("Пропущена отправка для chatId " + chatId + ": слишком скоро");
+        }
       }
 
       if (messageText != null && messageText.equals("Далее")) {

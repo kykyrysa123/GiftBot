@@ -296,7 +296,7 @@ public class GiftBot extends TelegramLongPollingBot {
   private void sendMessage(long chatId, String text) throws TelegramApiException {
     sendMessage(chatId, text, false);
   }
-
+  private final Map<Long, Long> lastPromptMessageTime = new ConcurrentHashMap<>();
   // Модифицированный метод handleUserState
   private void handleUserState(long chatId, String username, String messageText, List<PhotoSize> photos) throws TelegramApiException {
     String state = userStates.get(chatId);
@@ -306,6 +306,7 @@ public class GiftBot extends TelegramLongPollingBot {
     if (messageText != null && messageText.equals("Отмена")) {
       userStates.remove(chatId);
       pendingOrders.remove(chatId);
+      lastPromptMessageTime.remove(chatId); // Очищаем таймер
       sendMessage(chatId, "Оформление заказа отменено. Используйте /order, чтобы начать заново.");
       return;
     }
@@ -314,9 +315,9 @@ public class GiftBot extends TelegramLongPollingBot {
       Order order = pendingOrders.computeIfAbsent(chatId, k -> new Order());
       boolean hasContent = false;
 
-      // Обрабатываем текст или подпись к фото
+      // Обрабатываем текст или подпись к фото как единое целое
       if (messageText != null && !messageText.equals("Далее")) {
-        order.appendContent(messageText);
+        order.appendContent(messageText.trim()); // Добавляем весь текст целиком
         hasContent = true;
         System.out.println("После обработки текста/подписи для chatId " + chatId + ": content = " + order.getContent());
       }
@@ -326,25 +327,33 @@ public class GiftBot extends TelegramLongPollingBot {
         PhotoSize largestPhoto = photos.get(photos.size() - 1);
         String photoFileId = largestPhoto.getFileId();
         order.addPhotoFileId(photoFileId);
-        if (messageText == null || messageText.isEmpty()) {
-          order.appendContent("[Photo]");
-        } else {
-          order.appendContent("[Photo]");
-        }
+        order.appendContent("[Photo]");
         hasContent = true;
         System.out.println("После обработки фото для chatId " + chatId + ": content = " + order.getContent());
       }
 
+      // Отправляем сообщение только один раз за обновление, если был добавлен контент
       if (hasContent) {
-        sendMessage(chatId, "Вы можете добавить ещё описание, ссылку или скриншот, или нажать 'Далее' для продолжения.", true);
+        long currentTime = System.currentTimeMillis();
+        Long lastSentTime = lastPromptMessageTime.getOrDefault(chatId, 0L);
+        // Проверяем, прошло ли достаточно времени (1 секунда) с последнего сообщения
+        if (currentTime - lastSentTime > 1000) {
+          sendMessage(chatId, "Вы можете добавить ещё описание, ссылку или скриншот, или нажать 'Далее' для продолжения.", true);
+          lastPromptMessageTime.put(chatId, currentTime);
+          System.out.println("Отправлено сообщение для chatId " + chatId + " в " + currentTime);
+        } else {
+          System.out.println("Пропущена отправка сообщения для chatId " + chatId + ": слишком скоро после предыдущего");
+        }
       }
 
+      // Обработка кнопки "Далее"
       if (messageText != null && messageText.equals("Далее")) {
         if (order.getContent() == null && order.getPhotoFileIds().isEmpty()) {
           sendMessage(chatId, "Пожалуйста, отправьте описание, ссылку или скриншот перед тем, как продолжить.", true);
           return;
         }
         userStates.put(chatId, "awaiting_username");
+        lastPromptMessageTime.remove(chatId); // Очищаем таймер при переходе
         sendMessage(chatId, "Теперь введите ваш Telegram username (например, @kitau123):", true);
         System.out.println("После нажатия 'Далее' для chatId " + chatId + ": content = " + order.getContent());
       }
@@ -389,6 +398,7 @@ public class GiftBot extends TelegramLongPollingBot {
       saveOrder(order, chatId);
       userStates.remove(chatId);
       pendingOrders.remove(chatId);
+      lastPromptMessageTime.remove(chatId); // Очищаем таймер
 
       sendMessage(chatId, "Ваш заказ №" + order.getOrderId() + " в обработке!");
 

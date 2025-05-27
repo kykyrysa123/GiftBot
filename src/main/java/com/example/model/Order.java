@@ -6,7 +6,7 @@ import java.util.List;
 public class Order {
   private int orderId;
   private String username;
-  private String content; // Новое поле для хранения текста и ссылок
+  private String orderDetails; // Новое поле для текста и ссылок
   private String lastName;
   private String firstName;
   private String patronymic;
@@ -31,20 +31,12 @@ public class Order {
     this.username = username;
   }
 
-  public String getContent() {
-    return content;
+  public String getOrderDetails() {
+    return orderDetails;
   }
 
-  public void setContent(String content) {
-    this.content = content;
-  }
-
-  public void appendContent(String content) {
-    if (this.content == null || this.content.isEmpty()) {
-      this.content = content;
-    } else {
-      this.content += "\n" + content;
-    }
+  public void setOrderDetails(String orderDetails) {
+    this.orderDetails = orderDetails;
   }
 
   public String getLastName() {

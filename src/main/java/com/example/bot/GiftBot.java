@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class GiftBot extends TelegramLongPollingBot {
@@ -50,9 +49,9 @@ public class GiftBot extends TelegramLongPollingBot {
   @Value("${admin.id}")
   private long adminId;
 
-  private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+");
   private final Map<Long, String> userStates = new HashMap<>();
   private final Map<Long, Order> pendingOrders = new HashMap<>();
+  private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+");
 
   @PostConstruct
   public void init() {
@@ -159,7 +158,7 @@ public class GiftBot extends TelegramLongPollingBot {
                         order_id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER,
                         username TEXT,
-                        content TEXT,
+                        order_details TEXT, -- Новая колонка для хранения текста и ссылок
                         last_name TEXT,
                         first_name TEXT,
                         patronymic TEXT,
@@ -170,6 +169,36 @@ public class GiftBot extends TelegramLongPollingBot {
           System.out.println("Таблица orders создана.");
         } else {
           System.out.println("Таблица orders уже существует.");
+
+          // Проверяем, существуют ли старые колонки text и link
+          rs = stmt.executeQuery("PRAGMA table_info(orders)");
+          boolean hasText = false, hasLink = false;
+          while (rs.next()) {
+            String columnName = rs.getString("name");
+            if ("text".equals(columnName)) hasText = true;
+            if ("link".equals(columnName)) hasLink = true;
+          }
+
+          // Если старые колонки существуют, добавляем order_details и мигрируем данные
+          if (hasText || hasLink) {
+            // Добавляем новую колонку
+            stmt.execute("ALTER TABLE orders ADD COLUMN order_details TEXT");
+            System.out.println("Колонка order_details добавлена.");
+
+            // Переносим данные из text и link в order_details
+            stmt.execute("UPDATE orders SET order_details = COALESCE(text, '') || CASE WHEN link IS NOT NULL THEN '; ' || link ELSE '' END");
+            System.out.println("Данные перенесены в order_details.");
+
+            // Удаляем старые колонки
+            if (hasText) {
+              stmt.execute("ALTER TABLE orders DROP COLUMN text");
+              System.out.println("Колонка text удалена.");
+            }
+            if (hasLink) {
+              stmt.execute("ALTER TABLE orders DROP COLUMN link");
+              System.out.println("Колонка link удалена.");
+            }
+          }
         }
 
         // Проверяем, существует ли таблица order_photos
@@ -187,40 +216,21 @@ public class GiftBot extends TelegramLongPollingBot {
           System.out.println("Таблица order_photos уже существует.");
         }
 
-        // Удаляем старые столбцы, если они существуют
+        // Проверяем, существует ли столбец photo_file_id в таблице orders
         rs = stmt.executeQuery("PRAGMA table_info(orders)");
-        boolean hasText = false, hasLink = false, hasPhotoFileId = false;
+        boolean hasPhotoFileId = false;
         while (rs.next()) {
-          String columnName = rs.getString("name");
-          if ("text".equals(columnName)) hasText = true;
-          if ("link".equals(columnName)) hasLink = true;
-          if ("photo_file_id".equals(columnName)) hasPhotoFileId = true;
-        }
-        if (hasText) {
-          stmt.execute("ALTER TABLE orders DROP COLUMN text");
-          System.out.println("Столбец text удалён из таблицы orders.");
-        }
-        if (hasLink) {
-          stmt.execute("ALTER TABLE orders DROP COLUMN link");
-          System.out.println("Столбец link удалён из таблицы orders.");
-        }
-        if (hasPhotoFileId) {
-          stmt.execute("ALTER TABLE orders DROP COLUMN photo_file_id");
-          System.out.println("Столбец photo_file_id удалён из таблицы orders.");
-        }
-
-        // Проверяем, существует ли столбец content, и добавляем, если отсутствует
-        rs = stmt.executeQuery("PRAGMA table_info(orders)");
-        boolean hasContent = false;
-        while (rs.next()) {
-          if ("content".equals(rs.getString("name"))) {
-            hasContent = true;
+          if ("photo_file_id".equals(rs.getString("name"))) {
+            hasPhotoFileId = true;
             break;
           }
         }
-        if (!hasContent) {
-          stmt.execute("ALTER TABLE orders ADD COLUMN content TEXT");
-          System.out.println("Столбец content добавлен в таблицу orders.");
+        // Если столбец photo_file_id существует, удалим его
+        if (hasPhotoFileId) {
+          stmt.execute("ALTER TABLE orders DROP COLUMN photo_file_id");
+          System.out.println("Столбец photo_file_id удалён из таблицы orders.");
+        } else {
+          System.out.println("Столбец photo_file_id в таблице orders отсутствует.");
         }
 
         // Проверяем, существует ли таблица sites
@@ -297,7 +307,7 @@ public class GiftBot extends TelegramLongPollingBot {
   private void sendMessage(long chatId, String text) throws TelegramApiException {
     sendMessage(chatId, text, false);
   }
-  private final Map<Long, Long> lastPromptMessageTime = new ConcurrentHashMap<>();
+
   // Модифицированный метод handleUserState
   private void handleUserState(long chatId, String username, String messageText, List<PhotoSize> photos) throws TelegramApiException {
     String state = userStates.get(chatId);
@@ -307,60 +317,55 @@ public class GiftBot extends TelegramLongPollingBot {
     if (messageText != null && messageText.equals("Отмена")) {
       userStates.remove(chatId);
       pendingOrders.remove(chatId);
-      lastPromptMessageTime.remove(chatId); // Очищаем таймер
       sendMessage(chatId, "Оформление заказа отменено. Используйте /order, чтобы начать заново.");
       return;
     }
 
     if (state.equals("awaiting_order")) {
       Order order = pendingOrders.computeIfAbsent(chatId, k -> new Order());
-      boolean hasContent = false;
+      System.out.println("Начало handleUserState для chatId " + chatId + ", текущее значение orderDetails: " + order.getOrderDetails());
 
-      // Обрабатываем текст или подпись к фото как единое целое
+      boolean hasInput = false;
+
       if (messageText != null && !messageText.equals("Далее")) {
-        order.appendContent(messageText.trim()); // Добавляем весь текст целиком
-        hasContent = true;
-        System.out.println("После обработки текста/подписи для chatId " + chatId + ": content = " + order.getContent());
+        // Сохраняем текст сообщения как есть
+        if (order.getOrderDetails() == null) {
+          order.setOrderDetails(messageText);
+        } else {
+          order.setOrderDetails(order.getOrderDetails() + "; " + messageText);
+        }
+        hasInput = true;
+        System.out.println("После обработки текста/подписи для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       }
 
-      // Обрабатываем фотографии
       if (photos != null && !photos.isEmpty()) {
         PhotoSize largestPhoto = photos.get(photos.size() - 1);
         String photoFileId = largestPhoto.getFileId();
         order.addPhotoFileId(photoFileId);
-        order.appendContent("[Photo]");
-        hasContent = true;
-        System.out.println("После обработки фото для chatId " + chatId + ": content = " + order.getContent());
-      }
-
-      // Отправляем сообщение только один раз за обновление, если был добавлен контент
-      if (hasContent) {
-        long currentTime = System.currentTimeMillis();
-        Long lastSentTime = lastPromptMessageTime.getOrDefault(chatId, 0L);
-        // Проверяем, прошло ли достаточно времени (1 секунда) с последнего сообщения
-        if (currentTime - lastSentTime > 1000) {
-          sendMessage(chatId, "Вы можете добавить ещё описание, ссылку или скриншот, или нажать 'Далее' для продолжения.", true);
-          lastPromptMessageTime.put(chatId, currentTime);
-          System.out.println("Отправлено сообщение для chatId " + chatId + " в " + currentTime);
-        } else {
-          System.out.println("Пропущена отправка сообщения для chatId " + chatId + ": слишком скоро после предыдущего");
+        if (order.getOrderDetails() == null) {
+          order.setOrderDetails("Заказ со скриншотом");
         }
+        hasInput = true;
+        System.out.println("После обработки фото для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       }
 
-      // Обработка кнопки "Далее"
+      if (hasInput) {
+        sendMessage(chatId, "Вы можете добавить ещё описание, ссылку или скриншот, или нажать 'Далее' для продолжения.", true);
+      }
+
       if (messageText != null && messageText.equals("Далее")) {
-        if (order.getContent() == null && order.getPhotoFileIds().isEmpty()) {
-          sendMessage(chatId, "Пожалуйста, отправьте описание, ссылку или скриншот перед тем, как продолжить.", true);
+        if (order.getOrderDetails() == null && order.getPhotoFileIds().isEmpty()) {
+          sendMessage(chatId, "Пожалуйста, отправьте описание подарка, ссылку или скриншот перед тем, как продолжить.", true);
           return;
         }
         userStates.put(chatId, "awaiting_username");
-        lastPromptMessageTime.remove(chatId); // Очищаем таймер при переходе
         sendMessage(chatId, "Теперь введите ваш Telegram username (например, @kitau123):", true);
-        System.out.println("После нажатия 'Далее' для chatId " + chatId + ": content = " + order.getContent());
+        System.out.println("После нажатия 'Далее' для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       }
 
     } else if (state.equals("awaiting_username")) {
       Order order = pendingOrders.get(chatId);
+      System.out.println("Состояние awaiting_username для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       if (messageText != null && messageText.startsWith("@")) {
         order.setUsername(messageText.trim());
         userStates.put(chatId, "awaiting_fio");
@@ -371,6 +376,7 @@ public class GiftBot extends TelegramLongPollingBot {
 
     } else if (state.equals("awaiting_fio")) {
       Order order = pendingOrders.get(chatId);
+      System.out.println("Состояние awaiting_fio для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       String[] nameParts = messageText.trim().split("\\s+");
       if (nameParts.length >= 3) {
         order.setLastName(nameParts[0]);
@@ -384,6 +390,7 @@ public class GiftBot extends TelegramLongPollingBot {
 
     } else if (state.equals("awaiting_phone")) {
       Order order = pendingOrders.get(chatId);
+      System.out.println("Состояние awaiting_phone для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       String phoneNumber = messageText.trim().replaceAll("\\s+", "");
       if (phoneNumber.matches("^\\+375\\d{9}$")) {
         order.setPhone(phoneNumber);
@@ -392,27 +399,26 @@ public class GiftBot extends TelegramLongPollingBot {
       } else {
         sendMessage(chatId, "Номер телефона должен начинаться с +375 и содержать ровно 12 цифр (например, +375441314715). Пожалуйста, введите корректный номер:", true);
       }
-
     } else if (state.equals("awaiting_address")) {
       Order order = pendingOrders.get(chatId);
+      System.out.println("Состояние awaiting_address для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       order.setAddress(messageText.trim());
       saveOrder(order, chatId);
       userStates.remove(chatId);
       pendingOrders.remove(chatId);
-      lastPromptMessageTime.remove(chatId); // Очищаем таймер
 
       sendMessage(chatId, "Ваш заказ №" + order.getOrderId() + " в обработке!");
 
-      // Формируем сообщение для админа
+      System.out.println("Перед отправкой админу для chatId " + chatId + ": orderDetails = " + order.getOrderDetails());
       StringBuilder adminMessage = new StringBuilder("Новый заказ №" + order.getOrderId() + " от " + order.getUsername() + ":\n" +
-          "Содержимое заказа:\n" + (order.getContent() != null ? order.getContent() : "[Отсутствует]") + "\n" +
+          "Детали заказа: " + (order.getOrderDetails() != null ? order.getOrderDetails() : "Отсутствует") + "\n" +
           "Фамилия: " + order.getLastName() + "\n" +
           "Имя: " + order.getFirstName() + "\n" +
           "Отчество: " + order.getPatronymic() + "\n" +
           "Телефон: " + order.getPhone() + "\n" +
           "Доставка: " + order.getAddress());
       if (!order.getPhotoFileIds().isEmpty()) {
-        adminMessage.append("\nСкриншоты:");
+        adminMessage.append("\nСкриншоты: [фото отправлены]");
         for (String photoFileId : order.getPhotoFileIds()) {
           SendPhoto photoMessage = new SendPhoto();
           photoMessage.setChatId(String.valueOf(adminId));
@@ -431,13 +437,13 @@ public class GiftBot extends TelegramLongPollingBot {
 
 
   private void saveOrder(Order order, long chatId) {
-    String sqlOrder = "INSERT INTO orders (user_id, username, content, last_name, first_name, patronymic, phone, address, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    String sqlOrder = "INSERT INTO orders (user_id, username, order_details, last_name, first_name, patronymic, phone, address, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     String sqlPhoto = "INSERT INTO order_photos (order_id, photo_file_id) VALUES (?, ?)";
     try (Connection conn = DriverManager.getConnection("jdbc:sqlite:orders.db");
          PreparedStatement pstmtOrder = conn.prepareStatement(sqlOrder, Statement.RETURN_GENERATED_KEYS)) {
       pstmtOrder.setLong(1, chatId);
       pstmtOrder.setString(2, order.getUsername());
-      pstmtOrder.setString(3, order.getContent());
+      pstmtOrder.setString(3, order.getOrderDetails());
       pstmtOrder.setString(4, order.getLastName());
       pstmtOrder.setString(5, order.getFirstName());
       pstmtOrder.setString(6, order.getPatronymic());
@@ -646,7 +652,7 @@ public class GiftBot extends TelegramLongPollingBot {
       hyperlinkStyle.setFont(hyperlinkFont);
 
       // Заголовки столбцов
-      String[] headers = {"Статус одобрения", "ID", "Username", "Содержимое заказа", "Имя", "Фамилия", "Отчество", "Телефон", "Адрес", "Статус"};
+      String[] headers = {"Статус одобрения", "ID", "Username", "Детали заказа", "Скриншот", "Имя", "Фамилия", "Отчество", "Телефон", "Адрес", "Статус"};
       Row headerRow = sheet.createRow(0);
       for (int i = 0; i < headers.length; i++) {
         Cell cell = headerRow.createCell(i);
@@ -658,13 +664,14 @@ public class GiftBot extends TelegramLongPollingBot {
       sheet.setColumnWidth(0, 20 * 256); // Статус одобрения
       sheet.setColumnWidth(1, 10 * 256); // ID
       sheet.setColumnWidth(2, 20 * 256); // Username
-      sheet.setColumnWidth(3, 50 * 256); // Содержимое заказа (увеличиваем ширину для длинного содержимого)
-      sheet.setColumnWidth(4, 20 * 256); // Имя
-      sheet.setColumnWidth(5, 20 * 256); // Фамилия
-      sheet.setColumnWidth(6, 20 * 256); // Отчество
-      sheet.setColumnWidth(7, 20 * 256); // Телефон
-      sheet.setColumnWidth(8, 30 * 256); // Адрес
-      sheet.setColumnWidth(9, 20 * 256); // Статус
+      sheet.setColumnWidth(3, 40 * 256); // Детали заказа (увеличиваем ширину для длинного текста)
+      sheet.setColumnWidth(4, 20 * 256); // Скриншот
+      sheet.setColumnWidth(5, 20 * 256); // Имя
+      sheet.setColumnWidth(6, 20 * 256); // Фамилия
+      sheet.setColumnWidth(7, 20 * 256); // Отчество
+      sheet.setColumnWidth(8, 20 * 256); // Телефон
+      sheet.setColumnWidth(9, 30 * 256); // Адрес
+      sheet.setColumnWidth(10, 20 * 256); // Статус
 
       // Заполняем таблицу данными
       boolean hasOrders = false;
@@ -692,7 +699,6 @@ public class GiftBot extends TelegramLongPollingBot {
         System.out.println("Найдено " + photoFileIds.size() + " фотографий для заказа №" + orderId + ": " + photoFileIds);
 
         String status = rs.getString("status") != null ? rs.getString("status") : "в обработке";
-        String content = rs.getString("content") != null ? rs.getString("content") : "";
 
         // Первая строка заказа с основными данными
         int startRow = rowNum;
@@ -706,54 +712,61 @@ public class GiftBot extends TelegramLongPollingBot {
         // Остальные столбцы
         row.createCell(1).setCellValue(orderId);
         row.createCell(2).setCellValue(rs.getString("username") != null ? rs.getString("username") : "");
+        row.createCell(3).setCellValue(rs.getString("order_details") != null ? rs.getString("order_details") : "");
+        row.createCell(5).setCellValue(rs.getString("first_name") != null ? rs.getString("first_name") : "");
+        row.createCell(6).setCellValue(rs.getString("last_name") != null ? rs.getString("last_name") : "");
+        row.createCell(7).setCellValue(rs.getString("patronymic") != null ? rs.getString("patronymic") : "");
+        row.createCell(8).setCellValue(rs.getString("phone") != null ? rs.getString("phone") : "");
+        row.createCell(9).setCellValue(rs.getString("address") != null ? rs.getString("address") : "");
+        row.createCell(10).setCellValue(status);
 
-        // Содержимое заказа (текст + гиперссылки на фото)
-        StringBuilder contentWithPhotos = new StringBuilder(content);
+        // Столбец "Скриншот" — добавляем гиперссылки
         if (!photoFileIds.isEmpty()) {
           int photoIndex = 1;
-          for (String photoFileId : photoFileIds) {
-            String filePath = getFilePath(photoFileId);
-            if (!filePath.isEmpty()) {
-              String photoUrl = "https://api.telegram.org/file/bot" + botToken + "/" + filePath;
-              contentWithPhotos.append("\n[Photo ").append(photoIndex).append("]: ").append(photoUrl);
-            } else {
-              contentWithPhotos.append("\n[Photo ").append(photoIndex).append("]: Ошибка");
-            }
-            photoIndex++;
+          // Добавляем первый скриншот в текущую строку
+          String filePath = getFilePath(photoFileIds.get(0));
+          if (!filePath.isEmpty()) {
+            String photoUrl = "https://api.telegram.org/file/bot" + botToken + "/" + filePath;
+            Cell photoCell = row.createCell(4);
+            photoCell.setCellValue("Скриншот " + photoIndex);
+            photoCell.setHyperlink(new XSSFHyperlink(HyperlinkType.URL) {{
+              setAddress(photoUrl);
+            }});
+            photoCell.setCellStyle(hyperlinkStyle);
+          } else {
+            row.createCell(4).setCellValue("Скриншот " + photoIndex + ": Ошибка");
           }
-        }
-        row.createCell(3).setCellValue(contentWithPhotos.toString());
+          photoIndex++;
 
-        row.createCell(4).setCellValue(rs.getString("first_name") != null ? rs.getString("first_name") : "");
-        row.createCell(5).setCellValue(rs.getString("last_name") != null ? rs.getString("last_name") : "");
-        row.createCell(6).setCellValue(rs.getString("patronymic") != null ? rs.getString("patronymic") : "");
-        row.createCell(7).setCellValue(rs.getString("phone") != null ? rs.getString("phone") : "");
-        row.createCell(8).setCellValue(rs.getString("address") != null ? rs.getString("address") : "");
-        row.createCell(9).setCellValue(status);
-
-        // Если есть фотографии, добавляем их в новые строки
-        if (!photoFileIds.isEmpty() && photoFileIds.size() > 1) {
+          // Добавляем остальные скриншоты в новые строки
           for (int i = 1; i < photoFileIds.size(); i++) {
             row = sheet.createRow(rowNum++);
-            String filePath = getFilePath(photoFileIds.get(i));
+            filePath = getFilePath(photoFileIds.get(i));
             if (!filePath.isEmpty()) {
               String photoUrl = "https://api.telegram.org/file/bot" + botToken + "/" + filePath;
-              Cell photoCell = row.createCell(3);
-              photoCell.setCellValue("Скриншот " + (i + 1));
+              Cell photoCell = row.createCell(4);
+              photoCell.setCellValue("Скриншот " + photoIndex);
               photoCell.setHyperlink(new XSSFHyperlink(HyperlinkType.URL) {{
                 setAddress(photoUrl);
               }});
               photoCell.setCellStyle(hyperlinkStyle);
             } else {
-              row.createCell(3).setCellValue("Скриншот " + (i + 1) + ": Ошибка");
+              row.createCell(4).setCellValue("Скриншот " + photoIndex + ": Ошибка");
             }
+            photoIndex++;
           }
+
           // Объединяем ячейки для остальных столбцов
-          for (int col = 0; col <= 9; col++) {
-            if (col != 3) { // Пропускаем столбец "Содержимое заказа"
-              sheet.addMergedRegion(new CellRangeAddress(startRow, rowNum - 1, col, col));
+          if (photoFileIds.size() > 1) {
+            for (int col = 0; col <= 10; col++) {
+              if (col != 4) { // Пропускаем столбец "Скриншот"
+                sheet.addMergedRegion(new CellRangeAddress(startRow, rowNum - 1, col, col));
+              }
             }
           }
+        } else {
+          row.createCell(4).setCellValue("");
+          System.out.println("Фотографии отсутствуют для заказа №" + orderId);
         }
       }
 
